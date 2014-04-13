@@ -1,7 +1,6 @@
 // F# Symbolic Math
 // See related blog post at http://luketopia.net/2013/07/28/fsharp-symbolic-math/
 
-// The expression type
 type Expr =
     | Con of int
     | Var of string
@@ -12,7 +11,6 @@ type Expr =
     | Power of Expr * Expr
     | Neg of Expr
 
-// Operators
 type Expr with
     static member (+) (x, y) = Add(x, y)
     static member (+) (x, y) = Add(x, Con y)
@@ -32,10 +30,9 @@ type Expr with
     static member (~-) x = Neg x
     static member (~+) x = x
 
-// Derivitive function
 let rec deriv var expr = 
     let d = deriv var
-    match expr with
+    match (expr:Expr) with
     | Var var -> Con 1                            // Identity Rule
     | Con x -> Con 0                              // Constant Rule
     | Mult(Con x, y) | Mult(y, Con x) -> Con x    // Constant Factor Rule
@@ -45,15 +42,76 @@ let rec deriv var expr =
     | Div(x, y) -> (d x * y - x * d y) / y ** 2   // Quotient Rule
     | Power(var, Con x) -> x * var ** (x - 1)     // Elementary Power Rule
     | _ -> failwith "Sorry, don't know how to differentiate that!"
-    
-// Some variables
-let x = Var("x")
-let y = Var("y")
-let z = Var("z")
 
-// Example: just echo an expression
-x ** 3 + x
+type Associativity = Left | Right
 
-// Example: take the derivitive of x ** 3 + x with respect to x
-deriv x (x ** 3 + x)
+[<RequireQualifiedAccess>]
+type BinaryOp = 
+    | Add 
+    | Sub 
+    | Mult 
+    | Div 
+    | Power
 
+type BinaryOp with
+    member this.Symbol =
+        match this with
+        | Add -> "+"
+        | Sub -> "-"
+        | Mult -> "*"
+        | Div -> "/"
+        | Power -> "**"
+    member this.Precedence =
+        match this with
+        | Add | Sub -> 1
+        | Mult | Div -> 2
+        | Power -> 3
+    member this.Associativity =
+        match this with
+        | Add | Mult -> None 
+        | Sub | Div -> Some Left
+        | Power -> Some Right
+
+[<RequireQualifiedAccess>]
+type UnaryOp = 
+    | Neg
+
+type UnaryOp with
+    member this.Symbol =
+        match this with
+        | Neg -> "-"
+
+let (|Binary|Unary|Variable|Constant|) expr =
+    match expr with
+    | Add(x, y) -> Binary(BinaryOp.Add, x, y)
+    | Sub(x, y) -> Binary(BinaryOp.Sub, x, y)
+    | Mult(x, y) -> Binary(BinaryOp.Mult, x, y)
+    | Div(x, y) -> Binary(BinaryOp.Div, x, y)
+    | Power(x, y) -> Binary(BinaryOp.Power, x, y)
+    | Neg(x) -> Unary(UnaryOp.Neg, x)
+    | Var(x) -> Variable(x)
+    | Con(x) -> Constant(x)
+
+let rec print expr =
+    let parensPrint innerExpr = sprintf "(%s)" (print innerExpr)
+    match expr with
+    | Binary(op, left, right) ->
+        let printInner defAssoc innerExpr = 
+            let opAssoc = defaultArg op.Associativity defAssoc
+            match innerExpr with
+            | Binary(innerOp, _, _) when innerOp.Precedence < op.Precedence -> parensPrint innerExpr
+            | Binary(innerOp, _, _) when innerOp.Precedence = op.Precedence && opAssoc <> defAssoc -> parensPrint innerExpr
+            | _ -> print innerExpr
+        sprintf "%s %s %s" (printInner Left left) op.Symbol (printInner Right right)
+    | Unary(op, operand) ->
+        match expr with
+        | Neg(Var _) -> print operand
+        | Neg(Con x) when x >= 0 -> print operand
+        | _ -> parensPrint operand
+        |> sprintf "%s%s" op.Symbol
+    | Variable x -> x
+    | Constant x -> string x
+
+let x = Var "x"
+let y = Var "y"
+let z = Var "z"
